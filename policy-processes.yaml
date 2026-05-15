@@ -1,0 +1,26 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: "exec-baseline"
+spec:
+  kprobes:
+    - call: "do_open_execat"
+      syscall: false
+      args:
+        - index: 0
+          type: "int"
+        - index: 1
+          type: "path"
+        - index: 2
+          type: "int"
+    - call: "begin_new_exec"
+      syscall: false 
+      args:
+        - index: 0
+          type: "nop"
+        - index: 1
+          type: "nop"
+      selectors:
+        - matchActions:
+            - action: Post
+        

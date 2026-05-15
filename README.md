@@ -5,10 +5,10 @@ Tetragon is a system to observe and analyze Linux system behavior layered securi
 ## Phase 1: Policy 1 (Network)
 
 ## Phase 2: Policy 2 (Processes)
-(comming soon) Detection of changes based on the baseline behavior.
+
 
 ## Phase 3: Policy 3 (File Integrity)
-(comming soon) Security rules applied at kernel level.
+
 
 ## Analytical Script Functionality
 The script processes data from the above policies and performs the following operations:
