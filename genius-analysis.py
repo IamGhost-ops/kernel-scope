@@ -1,12 +1,12 @@
-import json
 import sys
 import hashlib
 import queue
 import threading
 import time
 import orjson
-import logging
+import logging as log
 import argparse
+import yaml
 from typing import Dict, Any, NoReturn
 from elftools.elf.elffile import ELFFile
 from elftools.elf.segments import Segment
@@ -18,7 +18,7 @@ from prometheus_client import start_http_server, Counter
 
 EDR_EVENTS_COUNTER = Counter(
     'edr_behavioral_anomalies_total',
-    'Total behavioral anomalies detected via eBPF'
+    'Total behavioral anomalies detected via eBPF',
     ['process_name', 'status', 'anomaly_type']
 )
 
@@ -29,27 +29,27 @@ PF_X: Final[int] = 0x1
 
 def load_baseline():
     try:
-       """ with open("baseline.yaml", "r") as f:
+        with open("baseline.yaml", "r") as f:
             config = yaml.safe_load(f)
-            wynik = {
-                good_paths: set(config.get("known_good_paths", []))
-                good_ips: set(config.get("known_good_ips", []))
-                bad_paths: set(config.get("known_bad_paths", []))
-            }
-            return wynik
+        wynik = {
+            "good_paths": set(config.get("known_good_paths", [])),
+            "good_ips": set(config.get("known_good_ips", [])),
+            "bad_paths": set(config.get("known_bad_paths", []))
+        }
+        return wynik
     except FileNotFoundError:
-        logging.warning("baseline.yaml not found! Running with empty profiles.")
+        log.warning("baseline.yaml not found! Running with empty profiles.")
         return {"good_paths": set(),"good_ips": set(), "bad_paths": set()}
 
         BASELINE = load_baseline()
         KNOWN_GOOD_PATHS = BASELINE["good_paths"]
         KNOWN_GOOD_IPS = BASELINE["good_ips"] 
-        KNOWN_BAD_PATHS = BASELINE["bad_paths"]"""
+        KNOWN_BAD_PATHS = BASELINE["bad_paths"]
 
-def setup_infrastructure( args_list: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Parser logow Tetragonz eksportem Prometeusa")
+def setup_infrastructure(args_list: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Tetragon log parser with Prometeus export")
 
-    parser.add_argument("-f", "--file", type=str, default="/var/log/tetragon/tetragon.log", help="Sciezka do plikow logow Tetragon")
+    parser.add_argument("-f", "--file", type=str, default="/var/log/tetragon/tetragon.log", help="Tetragon log file path")
 
     parser.add_argument("-p", "--port", type=int, default=int(os.getenv("PROMETHEUS_METRICS_PORT", 8000)), help="Port to expose Prometheusmetrics (default: 8000)")
 
@@ -67,155 +67,129 @@ def setup_infrastructure( args_list: Optional[Sequence[str]] = None) -> argparse
 
 class TetragonParser:
 
-    def sprawdz_binarke_elf(sciezka fizyczna: Path) -> tuple[str, str, str, bool, bool, bool]:
+    def check_elf_binary(physical_path: Path) -> tuple[str, str, str, bool, bool, bool]:
         """
         Funkcja pomocnicza. Otwiera plik na dysku hosta, oblicza sumy kontrolne oraz sprawdza naglowki elf (szukajac podatnosci GNU-stack).
         Zwraca bezpieczny slownik z surowymi danymi.
         """
         md5_h, sha1_h, sha256_h = "", "", ""
-        elf_poprawny, gnu_stack_obecny, gnu_stack_wykonywalny = False, False, False 
+        valid_elf, gnu_stack_present, gnu_stack_executable = False, False, False 
    
 
         try:
-           md5, sha1, sha256 = hashlib.md5(), hashlib.sha1(), hashlib.sha256()
-           with open(sciezka_fizyczna, "rb") as f:
-               while chunk := f.read(4096):
-                   md5.update(chunk)
-                   sha1.update(chunk)
-                   sha256.update(chunk)
-           md5_h, sha1_h, sha256_h = md5.hexdigest(), sha1.hexdigest(), sha256.hexdigest()
+            md5, sha1, sha256 = hashlib.md5(), hashlib.sha1(), hashlib.sha256()
+            with open(physical_path, "rb") as f:
+                while chunk := f.read(4096):
+                    md5.update(chunk)
+                    sha1.update(chunk)
+                    sha256.update(chunk)
+            md5_h, sha1_h, sha256_h = md5.hexdigest(), sha1.hexdigest(), sha256.hexdigest()
         except IOError:
-        logger.debug(f"Brak mozliwosci odczytu hashow z pliku {sciezka_na_hoscie}: {e}")
-        return md5_h, sha1_h, sha256_h, elf_poprawny, gnu_stack_obecny, gnu_stack_wykonywalny
+            log.debug(f"Unable to read hashes from file {host_path}: {e}")
+        return md5_h, sha1_h, sha256_h, valid_elf, gnu_stack_present, gnu_stack_executable
 
         try:
-            with open(sciezka_na_hoscie, "rb") as f:
-            elf = ELFFile(f)
-            elf_poprawny = True
+            with open(host_path, "rb") as f:
+                elf = ELFFile(f)
+                valid_elf = True
             for segment in elf.iter_segments():
-                gnu_stack_obecny = True
+                gnu_stack_present = True
                 flags: int = segment.header.get("p_flags", 0)
-                gnu_stack_wykonywalny = bool(flags & PF_X)
+                gnu_stack_executable = bool(flags & PF_X)
 
         except Exception as e:
-            logger.debug(f"Plik {sciezka__fizyczna} nie jest poprawnym formatemELF lub jest uszkodzony: {e}")
-            elf_poprawny = False
-        return md5_h, sha1_h, sha256_h elf_poprawny, gnu_stack_obecny, gnu_stack_wykonywalny
+            log.debug(f"File {physical_path} is not a valid ELF format or is corrupted: {e}")
+            valid_elf = False
+        return md5_h, sha1_h, sha256_h, valid_elf, gnu_stack_present, gnu_stack_executable
     
 
 class TetragonWorker(threading.Thread):
-    def __init__(
-        self,
-        worker_id: int,
-        event.queue: queue.Queue[bytes],
-        shutdown_event: threading.Event,
-        cfg: TetragonConfig
-    ) -> None:
-        super().__init__(name=f"Worker-{worker_id}", daemon=True)
-        self.queue: queue.Queue[bytes] = event_queue
-        self.shutdown_event: threading.Event = shutdown_event
-        self.cfg: TetragonConfig = cfg
 
-    def run(self) -> None:
-        while not self.shutdown_event.is_set() or not self.queue.empty():
-            try:
-                raw_event = self_queue.get(timeout=0.5)
-                try:
-                    self._process_event(raw_event)
-                except Exception as e:
-                    logger.error(f"Blad parsowania: {e}", exc_info=True)
-                finally:
-                    self.queue.task_done()
-            except queue.Empty:
-                continue   
+   # def run(self) -> None:
+    #    super().run()
+     #   logging.info(f"watek ruszyl i czyta config: {cfg}")   
 
-     def process_event(self, raw_event: bytes) -> None:
-         if not raw_event:
-             return
+    def process_event(self, raw_event: bytes) -> None:
+        if not raw_event:
+            return
 
-         try:
-             event_data: Dict[str, Any] = orjson.loads(raw_event)
-         except orjson.JSONDecodeError:
-             return
+        try:
+            event_data: Dict[str, Any] = orjson.loads(raw_event)
+        except orjson.JSONDecodeError:
+            return
 
-             event = event_data.get("process_exec") or log.get("process_kprobe") or {}
-             process = event_data.get("process", {})
-             pod = process.get("pod", {})
-             parent = process.get("parent", {})
+            event = event_data.get("process_exec") or log.get("process_kprobe") or {}
+            process = event_data.get("process", {})
+            pod = process.get("pod", {})
+            parent = process.get("parent", {})
 
-             wewnetrzna_sciezka_pliku: str = process.get("binary", "")
-             pid_hosta: int = process.get("pid", 0)
-             uid_uzytkownika: int = process.get("uid", 0)
-             argumenty_procesu: str = process.get("arguments", "")
-             exec_id: str = process.get("exec_id", "")
-             id_kontenera: str = process.get("container_id", "") or proces.get("docker", "")
+            internal_file_path: str = process.get("binary", "")
+            host_pid: int = process.get("pid", 0)
+            user_uid: int = process.get("uid", 0)
+            process_args: str = process.get("arguments", "")
+            exec_id: str = process.get("exec_id", "")
+            container_id: str = process.get("container_id", "") or proces.get("docker", "")
 
-             sciezka_rodzica: str = parent.get("binary", "")
-             pid_rodzica: int = parent.get("pid", 0)                
+            parent_path: str = parent.get("binary", "")
+            parent_pid: int = parent.get("pid", 0)                
 
-             pid_hosta: int = process.get("pid", 0)
-             nazwa_poda: str = pod.get("name", "")
-             namespace_poda: str = pod.get("namespace", "")
-             czy_to_pod = bool = bool("nazwa_poda")
-             policy_name = event_data.get("policy_name")
+            pod_namespace: str = pod.get("namespace", "")
+            is_pod = bool = bool("pod_name")
+            policy_name = event_data.get("policy_name")
 
-             sciezka_fizyczna_str: str = (
-                 f"/proc/{pid_hosta}/root{wewnetrzna_sciezka_pliku}"
-                 if czy_to_pod and pid_hosta > 0
-                 else wewnetrzna_sciezka_pliku
+            pod_name = k8s_info.get("pod_name", "native_host")
+            name_space = k8s_info.get("namespace", "none")
+            k8s_info = event_data.get("kubernetes", {})
+
+            physical_path_str: str = (
+                f"/proc/{host_pid}/root{internal_file_path}"
+                if is_pod and host_pid > 0
+                else internal_file_path
              )
                 
-             kprobe = event_data.get("process_kprobe",{})
-             process = kprobe.get("process", {})
+            kprobe = event_data.get("process_kprobe",{})
+            process = kprobe.get("process", {})
 
-             nazwa_procesu = process.get("binary", {})
-             typ_akcji = kprobe.get("function_name", {})
+            process_name = process.get("binary", {})
+            action_type = kprobe.get("function_name", {})
 
-             docelowe_ip = kprobe.get("args", [{}])[0].get("string_arg", None) if "args" in kprobe else None
+            destination_ip = kprobe.get("args", [{}])[0].get("string_arg", None) if "args" in kprobe else None
 
-             sciezka_pliku = event_data.get("process_exec", {}).get("process", {}).get("path", None)
-             k8s_info = event_data.get("kubernetes", {})
-             pod_name = k8s_info.get("pod_name", "native_host")
-             name_space = k8s_info.get("namespace", "none")
+            file_path = event_data.get("process_exec", {}).get("process", {}).get("path", None)
 
+            conn_data: Optional[Dict[str, Any]] = event_data.get("process_connect")
+            send_data: Optional[Dict[str, Any]] = event_data.get("process_sendmsg")
+            recv_data: Optional[Dict[str, Any]] = event_data.get("process_recvmsg")
+            close_data: Optional[Dict[str, Any]] = event_data.get("process_close")
 
+            net_ctx: Optional[Dict[str, Any]] = conn_data or send_data or recv_data or close_data    
 
+            saddr: str = net_ctx.get("source_ip", "0.0.0.0") if net_ctx else "0.0.0.0"
+            daddr: str = net_ctx.get("destination_ip", "0.0.0.0") if net_ctx else "0.0.0.0"
+            sport: int  = net_ctx.get("source_port", 0) if net_ctx else 0
+            dport: int = net_ctx.get("destination_port", 0) if net_ctx else 0
+            bytes_sent: int = net_ctx.get("bytes", 0) if (send_data or recv_data) else 0
 
+            hook_data: Optional[Dict[str, Any]] = event_data.get("kprobe") or event_data.get("fentry")
+            func_name: Optional[str] = hook_data.get("function_name") if hook_data else None
+            args: List[Dict[str, Any]] = hook_data.get("args")
 
+            veryfied_file_path  = Path(physical_path_str)
 
-             conn_data: Optional[Dict[str, Any]] = event_data.get("process_connect")
-             send_data: Optional[Dict[str, Any]] = event_data.get("process_sendmsg")
-             recv_data: Optional[Dict[str, Any]] = event_data.get("process_recvmsg")
-             close_data: Optional[Dict[str, Any]] = event_data.get("process_close")
-
-             net_ctx: Optional[Dict[str, Any]] = conn_data or send_data or recv_data or close_data    
-
-             saddr: str = net_ctx.get("source_ip", "0.0.0.0") if net_ctx else "0.0.0.0"
-             daddr: str = net_ctx.get("destination_ip", "0.0.0.0") if net_ctx else "0.0.0.0"
-             sport: int  = net_ctx.get("source_port", 0) if net_ctx else 0
-             dport: int = net_ctx.get("destination_port", 0) if net_ctx else 0
-             bytes_sent: int = net_ctx.get("bytes", 0) if (send_data or recv_data) else 0
-
-             hook_data: Optional[Dict[str, Any]] = event_data.get("kprobe") or event_data.get("fentry")
-             func_name: Optional[str] = hook_data.get("function_name") if hook_data else None
-             args: List[Dict[str, Any]] = hook_data.get("args")
-
-             weryfikowany_plik_path  = Path(sciezka_fizyczna_str)
-
-             if wewnetrzna_sciezka_pliku and weryfikowany_plik_path.exists():
-                skrot_md5, skrot_sha1, skrot_sha256, czy_elf, czy_jest_stack, czy_stack_exec = sprawdz_binarke_elf(weryfikowany_plik_path)
-             else:
-                 skrot_md5, skrot_sha1, skrot_sha256, czy_elf, czy_jest_stack, czy_stack_exex = "", "", "", False, False, False
+            if internal_file_path and veryfied_file_path.exists():
+                hash_md5, hash_sha1, hash_sha256, is_elf, has_stack, is_stack_exec = check_elf_binary(veryfied_file_path)
+            else:
+                 hash_md5, hash_sha1, hash_sha256, is_elf, has_stack, is_stack_exex = "", "", "", False, False, False
    
-             etykieta_miejsca: str = f"Pod: [{namespace_poda}/{nazwa_poda}]" if czy_to_pod else "System: [Host]"
+            location_label: str = f"Pod: [{pod_namespace}/{pod_name}]" if is_pod else "System: [Host]"
 
-             proc_info: Dict[str, Any] = event_data.get("process", {}) if not net_ctx else net_ctx.get("process", {})
-             pod_info: Dict[str, Any] = event_data.get("kubernetes", {}) if not net_ctx else net_ctx.get("kubernetes", {})
+            proc_info: Dict[str, Any] = event_data.get("process", {}) if not net_ctx else net_ctx.get("process", {})
+            pod_info: Dict[str, Any] = event_data.get("kubernetes", {}) if not net_ctx else net_ctx.get("kubernetes", {})
 
-             fd_number: Optional[int] = None
-             file_path: Optional[str]  = None
+            fd_number: Optional[int] = None
+            file_path: Optional[str]  = None
 
-             for arg in args:
+            for arg in args:
                 if arg.get("index") == 0:
                    fd_number = arg.get("int arg")
                 if arg.get("index") == 1 and (file_arg := arg.get("file_arg")):
@@ -233,9 +207,9 @@ class TetragonWorker(threading.Thread):
             if "process_kprobe" in event:
                 kp = event.get("process_kprobe")
                 func = kp.get("function_name", "unknown")
-                log_message = f"ACTION: {func} in process {event.get('process_kprobe', {}).get('process', {}).get('binary, 'unknown')}"
+                log_message = f"ACTION: {func} in process {event.get('process_kprobe', {}).get('process', {}).get('binary', 'unknown')}"
 
-            logging.info(log_message)
+
 
             elif "process_exec" in event:
                 proc = event.get("process_exec", {}).get("process")
@@ -247,11 +221,11 @@ class TetragonWorker(threading.Thread):
                 pass
 
 
-            elif docelowe_ip not in KNOWN_GOOD_IPS:
+            if docelowe_ip not in KNOWN_GOOD_IPS:
                 name = "untrusted_network_egress"
                 EDR_EVENTS_COUNTER.labels(process_name=process, status="anomaly", rule_name=name).inc()
 
-            elif sciezka_pliku not in KNOWN_GOOD_PATHS::
+            elif sciezka_pliku not in KNOWN_GOOD_PATHS:
                 name = "untrusted_file_write"
                 EDR_EVENTS_COUNTER.labels(process_name=process, status="anomaly", rule_name=name).inc()
 
@@ -267,42 +241,47 @@ class TetragonWorker(threading.Thread):
 
 
 
-            if not wewnetrzna_sciezka_pliku:
-                log_queue.task_done()
-                continue
+            if not internal_file_path:
+                pass
 
-            if wewnetrzna_sciezka_pliku and not skrot_sha256:
-                log.warning(f"[{etykieta_miejsca}] Plik zniknal przed wykonaniem analizy: {wewnetrzna_sciezka_pliku}")
-                log.queue.task_done()
-                continue
+            elif internal_file_path and not hash_sha256:
+                 name = "untrusted_hash"
+                EDR_EVENTS_COUNTER.labels(process_name=hash, status="anomaly", rule_name=name).inc()
+                log.warning(f"[{location_label}] File disappeared before analysis could be performed: {internal_file_path}")
+                pass
 
-            if skrot_sha256:
-                logger.info(f"[{etykieta_miejsca}] Przetworzono uruchomienie: {wewnetrzna_sciezka_pliku} (SHA-256: {skrot_sha256})
+            elif hash_sha256:
+                log.info(f"[{location_label}] Processed execution: {internal_file_path} (SHA-256: {hash_sha256})")
 
-            if not czy_elf:
-                logger.info(f"[{etykieta_miejsca}] Pomijanie analizy naglowkow: {wewnetrzna_sciezka_pliku} to nie jest plik ELF (np. skrypt).")
+            elif not is_elf:
+                log.info(f"[{location_label}] Skipping header analysis {internal_file_path} is not a valid ELF (np. script).")
 
-            if czy_elf and not czy_jest_stack:
-                logger.warning(f"[{etykieta_miejsca}] BEZPIECZENSTWO: Plik {wewnetrzna_sciezka_pliku} nie posiada naglowka PT_GNU_STACK!")
+            elif is_elf and not has_stack:
+                 name = "untrusted_header"
+                EDR_EVENTS_COUNTER.labels(process_name=header, status="anomaly", rule_name=name).inc()
+                log.warning(f"[{location_label}] SECURITY: File {internal_file_path} is missing PT_GNU_STACK header!")
 
-            if czy_jest_stack and czy_stack_exec:
-                logger.critical(
-                    f"ALARM PODATNOSCI [{etykieta_miejsca}]! Uruchomiono plik {wewnetrzna_sciezka_pliku} "
-                    f"z WYKONYWALNYM stosem (Brak ochrony NX/DEP)! ID Kontenera: {id_kontenera if czy_to_pod else 'N/A'}"
-                )
+            elif has_stack and is_stack_exec:
+                 name = "GNU_stack"
+                EDR_EVENTS_COUNTER.labels(process_name=gnu_stack, status="anomaly", rule_name=name).inc()
+                log.critical(f"VULNERABILITY ALERT: [{location_label}]! File {internal_file_path}  executed with an executable stack (Brak ochrony NX/DEP)! Container ID: {container_id if is_pod else 'N/A'}")
 
             if czy_jest_stack and not czy_stack_exec:
-                logger.info(f"[{etykieta_miejsca}] Ochrona jadra aktywna. Stos binaru {wewnetrzna_sciezka_pliku} jest niewykonywalny.")
+                log.info(f"[{location_label}] Ochrona jadra aktywna. Stos binaru {internal_file_path} jest niewykonywalny.")
 
             if conn_data:
                 if daddr in self.cfg.blacklist_daddr:
-                    logger.error(f"[BLACKLIST MATCH] {proc_name} -> {daddr}:{dport}")
+                    name = "blacklist_daddr"
+                    EDR_EVENTS_COUNTER.labels(process_name=daddr, status="anomaly", rule_name=name).inc()
+                    log.error(f"[BLACKLIST MATCH] {proc_name} -> {daddr}:{dport}")
                     return
 
                 if uid == 0 and proc_name not in self.cfg.allowed_root_binaries:
-                    logger.warning(f"[UNAUTHORIZED ROOT CONNECT] {proc_name} jako ROOT -> {daddr}:{dport}
+                    name = "untrasted_root_binaries"
+                    EDR_EVENTS_COUNTER.labels(process_name=root, status="anomaly", rule_name=name).inc()
+                    log.warning(f"[UNAUTHORIZED ROOT CONNECT] {proc_name} jako ROOT -> {daddr}:{dport}")
 
-                logger.info(f"[TCP CONNECT] {proc_name} | {saddr}:{sport}")
+                log.info(f"[TCP CONNECT] {proc_name} | {saddr}:{sport}")
                 return
 
             if send_data or recv_data:
@@ -310,49 +289,53 @@ class TetragonWorker(threading.Thread):
                     return
 
                 if bytes_sent > self.cfg.max_bytes:
-                    logger.error(f"[LIMIT EXCEEDED] {proc_name} przeslal {bytes_sent} do {daddr}:{dport}")
+                    name = "untrusted_max_bytes"
+                    EDR_EVENTS_COUNTER.labels(process_name=max_bytes, status="anomaly", rule_name=name).inc()
+                    log.error(f"[LIMIT EXCEEDED] {proc_name} sent {bytes_sent} to {daddr}:{dport}")
 
                 direction = "OUTPUT" if send_data else "INPUT"
-                logger.info(f"[TCP CLOSE] {proc_name} | {saddr}:{sport} -> {daddr}:{dport}")
+                log.info(f"[TCP CLOSE] {proc_name} | {saddr}:{sport} -> {daddr}:{dport}")
                 return
 
             if policy_name:
                 if policy_name == "block-network-egress":
-                    logger.warning(f"[POLICY BLOCKED] {proc_name} (UID: {uid}) zatrzymany przez {policy_name}")
+                    name = "policy_blocked"
+                    EDR_EVENTS_COUNTER.labels(process_name=process, status="anomaly", rule_name=name).inc()
+                    log.warning(f"[POLICY BLOCKED] {proc_name} (UID: {uid}) stopped by {policy_name}")
 
                 if policy_name == "monitor-etc-dir":
-                    logger.info(f"[POLICY MATCH] Dostep do katalogu /etc/ w ramach {policy_name}")
+                    log.info(f"[POLICY MATCH] Directory access to /etc/ as part of {policy_name}")
                 return 
 
         except Exception as e:
-            logger.error(f"Blad krytyczny podczas przetwarzania elementu z kolejki: {e}", exec_info = True)
+            log.error(f"Critical error while processing a queue item: {e}", exec_info = True)
 
 
             analyze_tetragon_event(event)
             EVENT_QUEUE.task_done()
         except Exception as e:
-            logging.error(f"Worker encountered an error during analysis: {e}")
+            log.error(f"Worker encountered an error during analysis: {e}")
             EVENT_QUEUE.task.done()
-            continue
+            pass
 
 
 
 
 def run_pipeline(stream: TextIO) -> NoReturn:
-    logging.info("Spawing 4 worker threads for deep telemetry analysis..."
+    log.info("Spawing 4 worker threads for deep telemetry analysis...")
     
     for i in range(4):
-        t = threading.Thread(target=worker_consumer, 
-        t.daemon=True)
+        t = TetragonWorker()
+        t.daemon==True
         t.start()
-    logging.info("EDR Master Pipeline is listening to live Tetragon stream...")
+    log.info("EDR Master Pipeline is listening to live Tetragon stream...")
 
-    paczka_surowych_logow: list[bytes] = [
-        b'{"process_exec":{proces":{binary":"/bin/ls","pid":1234}}}
-        b'{"process_exec":{process":{binary:"/app/backend""pid":5678,"container_id":"cri-o://xyz","pod":"name":"api-pod","namespace":"prod"}}}}'
+   # paczka_surowych_logow: list[bytes] = [
+    #    b'{"process_exec":{proces":{binary":"/bin/ls","pid":1234}}}
+     #   b'{"process_exec":{process":{binary:"/app/backend""pid":5678,"container_id":"cri-o://xyz","pod":"name":"api-pod","namespace":"prod"}}}}'
 
-    logger.info("Oczekiwanie na zakonczeniezadan przez watki (log_queue.join...")
-    log.queue.join()
+    log.info("Waiting for threads to finish tasks... (log_queue.join...")
+   # log.queue.join()
 
 
     for line in stream:
@@ -366,7 +349,7 @@ def run_pipeline(stream: TextIO) -> NoReturn:
             binary_path = event.get("process_kprobe", {}).get("process", {}).get("binary", "")
 
             if binary_path in KNOWN_BAD_PATHS:
-                logging.critical(f"CRITICAL ALERT: Backlistedbinary blocked instantly!
+                log.critical(f"CRITICAL ALERT: Backlistedbinary blocked instantly!")
                 EDR_EVENTS_COUNTER.labels(process_name=binary_path, status="anomaly", anomaly_type="critical_blacklist").inc()
                 continue
             
@@ -377,23 +360,23 @@ def run_pipeline(stream: TextIO) -> NoReturn:
 
 
         except orjson.JSONDecodeError:
-            logging.error("Failsafe: orjsonfailed to decode malformed line.")
+            log.error("Failsafe: orjsonfailed to decode malformed line.")
             continue
         except queue.Full:
-            logging.critical("Queue overflow! Dropping events to protect Linux RAM."
+            log.critical("Queue overflow! Dropping events to protect Linux RAM.")  
         except Exception as e:
-            logging.error(f"Unexpected crash in master tread loop: {e}")    
+            log.error(f"Unexpected crash in master tread loop: {e}")    
 
 if __name__ == "__main__":
     try:
         start_http_server(8000)
-        logging.info("Prometheus telemetry endpoint exposed on http://localhost:8000/metrics")
+        log.info("Prometheus telemetry endpoint exposed on http://localhost:8000/metrics")
 
         run_pipeline(sys.stdin)
 
     except KeyboardInterrupt:
-        logging.info("EDR Engine shutdown requested by user.")
+        log.info("EDR Engine shutdown requested by user.")
         sys.exit(0)
     except Exception as startup_error:
-        logging.critical(f"Fatal system failure during initialization: {startup_error}")
+        log.critical(f"Fatal system failure during initialization: {startup_error}")
         sys.exit(1)
