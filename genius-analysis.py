@@ -22,29 +22,14 @@ EDR_EVENTS_COUNTER = Counter(
     ['process_name', 'status', 'anomaly_type']
 )
 
-log_queue: queue.Queue = queue.Queue(maxsize=10000)
+KNOWN_GOOD_PATHS = {"192.168.1.10", "127.0.0.1"}
+KNOWN_GOOD_IPS = {"/api/v1/login", "/api/v1/dashboard"}
+KNOWN_BAD_PATHS = {"/etc/passwd", "/.env", "/wp/admin"}
+
+EVENT_QUEUE: queue.Queue = queue.Queue(maxsize=10000)
 
 PF_X: Final[int] = 0x1
 
-
-def load_baseline():
-    try:
-        with open("baseline.yaml", "r") as f:
-            config = yaml.safe_load(f)
-        wynik = {
-            "good_paths": set(config.get("known_good_paths", [])),
-            "good_ips": set(config.get("known_good_ips", [])),
-            "bad_paths": set(config.get("known_bad_paths", []))
-        }
-        return wynik
-    except FileNotFoundError:
-        log.warning("baseline.yaml not found! Running with empty profiles.")
-        return {"good_paths": set(),"good_ips": set(), "bad_paths": set()}
-
-        BASELINE = load_baseline()
-        KNOWN_GOOD_PATHS = BASELINE["good_paths"]
-        KNOWN_GOOD_IPS = BASELINE["good_ips"] 
-        KNOWN_BAD_PATHS = BASELINE["bad_paths"]
 
 def setup_infrastructure(args_list: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Tetragon log parser with Prometeus export")
@@ -103,11 +88,7 @@ class TetragonParser:
         return md5_h, sha1_h, sha256_h, valid_elf, gnu_stack_present, gnu_stack_executable
     
 
-class TetragonWorker(threading.Thread):
-
-   # def run(self) -> None:
-    #    super().run()
-     #   logging.info(f"watek ruszyl i czyta config: {cfg}")   
+class TetragonWorker(threading.Thread):   
 
     def process_event(self, raw_event: bytes) -> None:
         if not raw_event:
@@ -245,7 +226,7 @@ class TetragonWorker(threading.Thread):
                 pass
 
             elif internal_file_path and not hash_sha256:
-                 name = "untrusted_hash"
+                name = "untrusted_hash"
                 EDR_EVENTS_COUNTER.labels(process_name=hash, status="anomaly", rule_name=name).inc()
                 log.warning(f"[{location_label}] File disappeared before analysis could be performed: {internal_file_path}")
                 pass
@@ -257,12 +238,12 @@ class TetragonWorker(threading.Thread):
                 log.info(f"[{location_label}] Skipping header analysis {internal_file_path} is not a valid ELF (np. script).")
 
             elif is_elf and not has_stack:
-                 name = "untrusted_header"
+                name = "untrusted_header"
                 EDR_EVENTS_COUNTER.labels(process_name=header, status="anomaly", rule_name=name).inc()
                 log.warning(f"[{location_label}] SECURITY: File {internal_file_path} is missing PT_GNU_STACK header!")
 
             elif has_stack and is_stack_exec:
-                 name = "GNU_stack"
+                name = "GNU_stack"
                 EDR_EVENTS_COUNTER.labels(process_name=gnu_stack, status="anomaly", rule_name=name).inc()
                 log.critical(f"VULNERABILITY ALERT: [{location_label}]! File {internal_file_path}  executed with an executable stack (Brak ochrony NX/DEP)! Container ID: {container_id if is_pod else 'N/A'}")
 
@@ -329,14 +310,6 @@ def run_pipeline(stream: TextIO) -> NoReturn:
         t.daemon==True
         t.start()
     log.info("EDR Master Pipeline is listening to live Tetragon stream...")
-
-   # paczka_surowych_logow: list[bytes] = [
-    #    b'{"process_exec":{proces":{binary":"/bin/ls","pid":1234}}}
-     #   b'{"process_exec":{process":{binary:"/app/backend""pid":5678,"container_id":"cri-o://xyz","pod":"name":"api-pod","namespace":"prod"}}}}'
-
-    log.info("Waiting for threads to finish tasks... (log_queue.join...")
-   # log.queue.join()
-
 
     for line in stream:
         try:
