@@ -1,25 +1,25 @@
+import os
 import sys
 import hashlib
 import queue
 import threading
-import time
 import orjson
 import logging as log
 import argparse
-import yaml
 from typing import Dict, Any, NoReturn
 from elftools.elf.elffile import ELFFile
-from elftools.elf.segments import Segment
 from pathlib import Path
 from prometheus_client import start_http_server, Counter
-
+from io import TextIOWrapper
+from typing import Final
+from collections.abc import Sequence
 
 
 
 EDR_EVENTS_COUNTER = Counter(
     'edr_behavioral_anomalies_total',
     'Total behavioral anomalies detected via eBPF',
-    ['process_name', 'status', 'anomaly_type']
+    labelnames=['process_name', 'status', 'anomaly_type']
 )
 
 KNOWN_GOOD_PATHS = {"192.168.1.10", "127.0.0.1"}
@@ -28,24 +28,26 @@ KNOWN_BAD_PATHS = {"/etc/passwd", "/.env", "/wp/admin"}
 
 EVENT_QUEUE: queue.Queue = queue.Queue(maxsize=10000)
 
-PF_X: Final[int] = 0x1
+PF_X: Final = 0x1
 
 
-def setup_infrastructure(args_list: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Tetragon log parser with Prometeus export")
+def setup_infrastructure(
+    args_list: Sequence[str] = None
+) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Tetragon log parser with Prometeus export"),
 
-    parser.add_argument("-f", "--file", type=str, default="/var/log/tetragon/tetragon.log", help="Tetragon log file path")
+    parser.add_argument("-f", "--file", type=str, default="/var/log/tetragon/tetragon.log", help="Tetragon log file path"),
 
-    parser.add_argument("-p", "--port", type=int, default=int(os.getenv("PROMETHEUS_METRICS_PORT", 8000)), help="Port to expose Prometheusmetrics (default: 8000)")
+    parser.add_argument("-p", "--port", type=int, default=int(os.getenv("PROMETHEUS_METRICS_PORT", 8443)), help="Port to expose Prometheus metrics (default: 8443)"),
 
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging level for deep troubelshooting")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging level for deep troubelshooting"),
     args: argparse.Namespace = parser.parse.args(args_list)
 
        
-    logging.basicConfig(
-        level=logging.INFO,
+    log.basicConfig(
+        level=log.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.StreamHandler(sys.stderr)]
+        handlers=[log.StreamHandler(sys.stderr)]
     )
     
     return args
@@ -109,18 +111,17 @@ class TetragonWorker(threading.Thread):
             user_uid: int = process.get("uid", 0)
             process_args: str = process.get("arguments", "")
             exec_id: str = process.get("exec_id", "")
-            container_id: str = process.get("container_id", "") or proces.get("docker", "")
+            container_id: str = process.get("container_id", "") or process.get("docker", "")
 
             parent_path: str = parent.get("binary", "")
             parent_pid: int = parent.get("pid", 0)                
 
             pod_namespace: str = pod.get("namespace", "")
-            is_pod = bool = bool("pod_name")
+            is_pod: bool = bool("pod_name")
             policy_name = event_data.get("policy_name")
-
+            k8s_info = event_data.get("kubernetes", {})
             pod_name = k8s_info.get("pod_name", "native_host")
             name_space = k8s_info.get("namespace", "none")
-            k8s_info = event_data.get("kubernetes", {})
 
             physical_path_str: str = (
                 f"/proc/{host_pid}/root{internal_file_path}"
@@ -138,12 +139,12 @@ class TetragonWorker(threading.Thread):
 
             file_path = event_data.get("process_exec", {}).get("process", {}).get("path", None)
 
-            conn_data: Optional[Dict[str, Any]] = event_data.get("process_connect")
-            send_data: Optional[Dict[str, Any]] = event_data.get("process_sendmsg")
-            recv_data: Optional[Dict[str, Any]] = event_data.get("process_recvmsg")
-            close_data: Optional[Dict[str, Any]] = event_data.get("process_close")
+            conn_data: Dict[str, Any] = event_data.get("process_connect")
+            send_data: Dict[str, Any] = event_data.get("process_sendmsg")
+            recv_data: Dict[str, Any] = event_data.get("process_recvmsg")
+            close_data: Dict[str, Any] = event_data.get("process_close")
 
-            net_ctx: Optional[Dict[str, Any]] = conn_data or send_data or recv_data or close_data    
+            net_ctx: Dict[str, Any] = conn_data or send_data or recv_data or close_data    
 
             saddr: str = net_ctx.get("source_ip", "0.0.0.0") if net_ctx else "0.0.0.0"
             daddr: str = net_ctx.get("destination_ip", "0.0.0.0") if net_ctx else "0.0.0.0"
@@ -151,9 +152,9 @@ class TetragonWorker(threading.Thread):
             dport: int = net_ctx.get("destination_port", 0) if net_ctx else 0
             bytes_sent: int = net_ctx.get("bytes", 0) if (send_data or recv_data) else 0
 
-            hook_data: Optional[Dict[str, Any]] = event_data.get("kprobe") or event_data.get("fentry")
-            func_name: Optional[str] = hook_data.get("function_name") if hook_data else None
-            args: List[Dict[str, Any]] = hook_data.get("args")
+            hook_data: Dict[str, Any] = event_data.get("kprobe") or event_data.get("fentry")
+            func_name: str = hook_data.get("function_name") if hook_data else None
+            args: Dict[str, Any] = hook_data.get("args")
 
             veryfied_file_path  = Path(physical_path_str)
 
@@ -167,46 +168,39 @@ class TetragonWorker(threading.Thread):
             proc_info: Dict[str, Any] = event_data.get("process", {}) if not net_ctx else net_ctx.get("process", {})
             pod_info: Dict[str, Any] = event_data.get("kubernetes", {}) if not net_ctx else net_ctx.get("kubernetes", {})
 
-            fd_number: Optional[int] = None
-            file_path: Optional[str]  = None
+            fd_number: int = None
+            file_path: str  = None
 
             for arg in args:
                 if arg.get("index") == 0:
                    fd_number = arg.get("int arg")
                 if arg.get("index") == 1 and (file_arg := arg.get("file_arg")):
-                   file_path = file.arg.get("path")
-
-
-            event = orjson.loads(line)
-            function_name = event.get("process_kprobe", {}).get("function_name", {}) or \
-            event.get("process_exec", {}).get("process", {}) or \
-            event.get("process", {})
-            path = event.get("fast_path")
+                   file_path = file_arg.get("path")
 
                 
 
             if "process_kprobe" in event:
                 kp = event.get("process_kprobe")
                 func = kp.get("function_name", "unknown")
-                log_message = f"ACTION: {func} in process {event.get('process_kprobe', {}).get('process', {}).get('binary', 'unknown')}"
+                log.info(f"ACTION: {func} in process {event.get('process_kprobe', {}).get('process', {}).get('binary', 'unknown')}")
 
 
 
             elif "process_exec" in event:
                 proc = event.get("process_exec", {}).get("process")
-                log_message = f"START: {proc['binary']} (PID: {proc['pid']})"
+                log.info(f"START: {proc['binary']} (PID: {proc['pid']})")
             elif "process_exit" in event:
                 pe = event["process_exit"]["process"]
-                log_message = f"THE END: {pe['binary']}"
+                log.info(f"THE END: {pe['binary']}")
             else:
                 pass
 
 
-            if docelowe_ip not in KNOWN_GOOD_IPS:
+            if destination_ip not in KNOWN_GOOD_IPS:
                 name = "untrusted_network_egress"
                 EDR_EVENTS_COUNTER.labels(process_name=process, status="anomaly", rule_name=name).inc()
 
-            elif sciezka_pliku not in KNOWN_GOOD_PATHS:
+            elif file_path not in KNOWN_GOOD_PATHS:
                 name = "untrusted_file_write"
                 EDR_EVENTS_COUNTER.labels(process_name=process, status="anomaly", rule_name=name).inc()
 
@@ -214,10 +208,10 @@ class TetragonWorker(threading.Thread):
                 name = "normal"
 
             if pod_name != "native_host":
-                log_message = f"ACTION {name} on process {nazwa_procesu} INSIDE POD {pod_name} (Namespace: {namespace})"
+                log.info(f"ACTION {name} on process {process_name} INSIDE POD {pod_name} (Namespace: {pod_namespace})")
 
             else:
-                log_message = f"ACTION {name} on process {nazwa_procesu} on HOST"
+                log.info(f"ACTION {name} on process {process_name} on HOST")
 
 
 
@@ -247,22 +241,22 @@ class TetragonWorker(threading.Thread):
                 EDR_EVENTS_COUNTER.labels(process_name=gnu_stack, status="anomaly", rule_name=name).inc()
                 log.critical(f"VULNERABILITY ALERT: [{location_label}]! File {internal_file_path}  executed with an executable stack (Brak ochrony NX/DEP)! Container ID: {container_id if is_pod else 'N/A'}")
 
-            if czy_jest_stack and not czy_stack_exec:
+            if has_stack and not is_stack_exec:
                 log.info(f"[{location_label}] Ochrona jadra aktywna. Stos binaru {internal_file_path} jest niewykonywalny.")
 
             if conn_data:
                 if daddr in self.cfg.blacklist_daddr:
                     name = "blacklist_daddr"
                     EDR_EVENTS_COUNTER.labels(process_name=daddr, status="anomaly", rule_name=name).inc()
-                    log.error(f"[BLACKLIST MATCH] {proc_name} -> {daddr}:{dport}")
+                    log.error(f"[BLACKLIST MATCH] {process} -> {daddr}:{dport}")
                     return
 
-                if uid == 0 and proc_name not in self.cfg.allowed_root_binaries:
+                if user_uid == 0 and process not in self.cfg.allowed_root_binaries:
                     name = "untrasted_root_binaries"
-                    EDR_EVENTS_COUNTER.labels(process_name=root, status="anomaly", rule_name=name).inc()
-                    log.warning(f"[UNAUTHORIZED ROOT CONNECT] {proc_name} jako ROOT -> {daddr}:{dport}")
+                    EDR_EVENTS_COUNTER.labels(process_name=untrasted, status="anomaly", rule_name=name).inc()
+                    log.warning(f"[UNAUTHORIZED ROOT CONNECT] {process} jako ROOT -> {daddr}:{dport}")
 
-                log.info(f"[TCP CONNECT] {proc_name} | {saddr}:{sport}")
+                log.info(f"[TCP CONNECT] {process} | {saddr}:{sport}")
                 return
 
             if send_data or recv_data:
@@ -271,18 +265,18 @@ class TetragonWorker(threading.Thread):
 
                 if bytes_sent > self.cfg.max_bytes:
                     name = "untrusted_max_bytes"
-                    EDR_EVENTS_COUNTER.labels(process_name=max_bytes, status="anomaly", rule_name=name).inc()
-                    log.error(f"[LIMIT EXCEEDED] {proc_name} sent {bytes_sent} to {daddr}:{dport}")
+                    EDR_EVENTS_COUNTER.labels(process_name=bytes, status="anomaly", rule_name=name).inc()
+                    log.error(f"[LIMIT EXCEEDED] {process} sent {bytes_sent} to {daddr}:{dport}")
 
                 direction = "OUTPUT" if send_data else "INPUT"
-                log.info(f"[TCP CLOSE] {proc_name} | {saddr}:{sport} -> {daddr}:{dport}")
+                log.info(f"[TCP CLOSE] {process} | {saddr}:{sport} -> {daddr}:{dport}")
                 return
 
             if policy_name:
                 if policy_name == "block-network-egress":
                     name = "policy_blocked"
                     EDR_EVENTS_COUNTER.labels(process_name=process, status="anomaly", rule_name=name).inc()
-                    log.warning(f"[POLICY BLOCKED] {proc_name} (UID: {uid}) stopped by {policy_name}")
+                    log.warning(f"[POLICY BLOCKED] {process} (UID: {user_uid}) stopped by {policy_name}")
 
                 if policy_name == "monitor-etc-dir":
                     log.info(f"[POLICY MATCH] Directory access to /etc/ as part of {policy_name}")
@@ -292,7 +286,7 @@ class TetragonWorker(threading.Thread):
             log.error(f"Critical error while processing a queue item: {e}", exec_info = True)
 
 
-            analyze_tetragon_event(event)
+           # analyze_tetragon_event(event)
             EVENT_QUEUE.task_done()
         except Exception as e:
             log.error(f"Worker encountered an error during analysis: {e}")
@@ -302,7 +296,7 @@ class TetragonWorker(threading.Thread):
 
 
 
-def run_pipeline(stream: TextIO) -> NoReturn:
+def run_pipeline(plik: TextIOWrapper) -> NoReturn:
     log.info("Spawing 4 worker threads for deep telemetry analysis...")
     
     for i in range(4):
@@ -310,7 +304,7 @@ def run_pipeline(stream: TextIO) -> NoReturn:
         t.daemon==True
         t.start()
     log.info("EDR Master Pipeline is listening to live Tetragon stream...")
-
+    stream = []
     for line in stream:
         try:
             clean_line = line.strip()
@@ -322,7 +316,7 @@ def run_pipeline(stream: TextIO) -> NoReturn:
             binary_path = event.get("process_kprobe", {}).get("process", {}).get("binary", "")
 
             if binary_path in KNOWN_BAD_PATHS:
-                log.critical(f"CRITICAL ALERT: Backlistedbinary blocked instantly!")
+                log.critical("CRITICAL ALERT: Backlistedbinary blocked instantly!")
                 EDR_EVENTS_COUNTER.labels(process_name=binary_path, status="anomaly", anomaly_type="critical_blacklist").inc()
                 continue
             
@@ -341,9 +335,15 @@ def run_pipeline(stream: TextIO) -> NoReturn:
             log.error(f"Unexpected crash in master tread loop: {e}")    
 
 if __name__ == "__main__":
+    PORT = int(os.getenv("PROMETHEUS_PORT", "8443"))
+    addr= str(os.getenv("PROMETHEUS_ADDR", "0.0.0.0"))
     try:
-        start_http_server(8000)
-        log.info("Prometheus telemetry endpoint exposed on http://localhost:8000/metrics")
+        start_http_server(
+             port=PORT,
+             addr=addr,
+             certfile='cert.pem',
+             keyfile='key.pem')
+        log.info(f"Prometheus telemetry endpoint exposed on (HTTPS) on port {PORT}.")
 
         run_pipeline(sys.stdin)
 

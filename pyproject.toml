@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genius_analysis"
+version = "0.5.0"
+description = "Real-time behavioral EDR engine leveraging eBPF (Tetragon v.1.7.0) on Linux Kernel 7.0+"
+readme = "README.md"
+requires-python = ">3.11"
+authors = [
+    { name = "Aurora Klajzer", email= "devsecops.ghost@proton.me" }
+]
+classifiers = [
+    "Programming Language :: Python ::3",
+    "Licence :: OSI Approved :: Apache Software Licence",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console"]
+dependencies = [
+    "prometheus-client==0.25.0",
+    "pyelftools==0.33",
+    "orjson==3.11.9",
+    "requests>=2.31.0"]
+
+[project.scripts]
+tetragon-edr = "genius_analysis:main"
+
+[tool-ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["F"]
+ignore = ["F841"]
+
+fixable = ["ALL"]
+unfixable = []
+
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["orjson.loads"]

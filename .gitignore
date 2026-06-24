@@ -1,0 +1,28 @@
+# Klucze kryptograficzne
+
+*.pem
+*.key
+*.pub
+*.crt
+*.pfx
+*.ppk
+
+# Klucze TSL i LSH
+
+*.tsl
+*.lsh
+*tsl*
+*lsh*
+secrets/
+.env
+
+# Srodowisko i zaleznosci
+node_modules/
+venv/
+.venv/
+__pycache__/
+
+# Pliki systemowe
+
+.DS_Store
+Thumbs.db
