@@ -27,6 +27,7 @@ The system implements a **proprietary self-defense technology** engineered direc
 
 The system is designed for maximum throughput and zero packet drop, leveraging and asynchronous multi-threaded architecture in Python.
 
+```mermaid
 graph TD
     %% Style Definitions
     classDef kernel fill:#FEE2E2,stroke:#DC2626,stroke-width:2px;
@@ -51,7 +52,7 @@ graph TD
     class B,C,D python;
     class E tools;
     class F metrics;
-
+```
 
 ### 1. Kernel Core: Cilium Tetragon (v1.7.0+)
 The EDR bypasses user-space polling by hooking directly into the Linux Kernel using **eBPF** (extended Berkeley Filter) technology **TracingPolicies** filter system events at the source, delivering a clean stream of security-relevant logs (such as memory and privililege escalation).
