@@ -11,4 +11,5 @@ scrape_configs:
 
 
     tls_config:
-      insecure_skip_verify: true
+      ca_file: '/etc/ssl/certs/metrics.crt'
+      insecure_skip_verify: false

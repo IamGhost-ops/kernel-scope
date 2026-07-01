@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import hashlib
 import queue
 import threading
@@ -21,6 +22,8 @@ EDR_EVENTS_COUNTER = Counter(
     'Total behavioral anomalies detected via eBPF',
     labelnames=['process_name', 'status', 'anomaly_type']
 )
+
+ALIVE_COUNTER = Counter('app_tls_alive_total', 'Licznik sprawdzajacy czy serwer zyje')
 
 KNOWN_GOOD_PATHS = {"192.168.1.10", "127.0.0.1"}
 KNOWN_GOOD_IPS = {"/api/v1/login", "/api/v1/dashboard"}
@@ -336,15 +339,19 @@ def run_pipeline(plik: TextIOWrapper) -> NoReturn:
 
 if __name__ == "__main__":
     PORT = int(os.getenv("PROMETHEUS_PORT", "8443"))
-    addr= str(os.getenv("PROMETHEUS_ADDR", "0.0.0.0"))
+    addr= str(os.getenv("PROMETHEUS_ADDR", "127.0.0.1"))
     try:
         start_http_server(
-             port=PORT,
-             addr=addr,
-             certfile='cert.pem',
-             keyfile='key.pem')
+            port=PORT,
+            addr=addr,
+            certfile='/etc/ssl/certs/metrics.crt',
+            keyfile='/etc/ssl/private/metrics.key')
         log.info(f"Prometheus telemetry endpoint exposed on (HTTPS) on port {PORT}.")
-
+    
+        while True:
+            ALIVE_COUNTER.inc()
+            time.sleep(1)
+        
         run_pipeline(sys.stdin)
 
     except KeyboardInterrupt:
