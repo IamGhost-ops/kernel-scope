@@ -6,11 +6,11 @@ We are incredibly grateful to everyone who contributes to this project, whether 
 
 ## Project Founder & Lead Architect
 
-* **You/YourNickname** - *Initial design, eBPF TracingPolicies, and Python multi-threaded correlation engine.*
+* **IamGhost-ops** - *Initial design, eBPF TracingPolicies, and Python multi-threaded correlation engine.*
 
 ## Core Team & Maintainers
 
-* **IamGhost-ops**([])
+* **IamGhost-ops**([devsecops.ghost@proton.me])
 
 ## Future Contributors
 
