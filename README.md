@@ -1,8 +1,5 @@
 # Custom Multi-Threaded EDR Platform (Tetragon eBPF + Python Daemon)
 
-![Clones](https://shields.io>IamGhost-ops/kernel-scope/traffic/clones)
-![CodeQL Status](https://github.comIamGhost/kernel-scope/actions/workflows/codeql.yml/badge.svg)
-
 
 An advanced propietary Endpoint Detection and Response (EDR) system. The application monitors OS kernel activity in real time via eBPF, analyzes executed binaries using native GNU utilises, and exports live security metrics to Prometheus.
 
