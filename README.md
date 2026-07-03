@@ -1,5 +1,8 @@
 # Custom Multi-Threaded EDR Platform (Tetragon eBPF + Python Daemon)
 
+![Clones](https://shields.io>IamGhost-ops/kernel-scope/traffic/clones)
+![CodeQL Status](https://github.comIamGhost/kernel-scope/actions/workflows/codeql.yml/badge.svg)
+
 
 An advanced propietary Endpoint Detection and Response (EDR) system. The application monitors OS kernel activity in real time via eBPF, analyzes executed binaries using native GNU utilises, and exports live security metrics to Prometheus.
 
@@ -69,7 +72,7 @@ Instead of using the standard Python JSON library, the system processes data usi
 Upon detecting a new file execution event (**ELF** format), the sytem extracts its structure, HEX headers, and section details using native **GNU binary utilities**. Concurrently, cryptographic **SHA** checksums are generated via optimized system-level utilities to match signature databases. Relying on the native **GNU toolchain** guarantees maximum stability, low footprint, and compatibility across Linux environments without requiring external GPU hardware dependencies.
 
 ### 5. Telemetry: Prometheus Metrics
-All classified anomalies and internal EDR performance metrics aggregated and exposed on a dedicated server port, fully compatible with the Prometheus monitoring ecosystem.
+All classified anomalies and internal EDR performance metrics aggregated and exposed on a dedicated server port, fully compatible with the Prometheus monitoring ecosystem. Prometheus communicates using encrypted **TLS (Transport Layer Security)** to ensure the confidentally and integrity of trasmitted data.
 
 ## Tracing Policies
 
