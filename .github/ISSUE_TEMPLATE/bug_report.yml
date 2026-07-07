@@ -1,5 +1,6 @@
 name: "Deployment Pipeline / CI/CD"
 description: "What caused the error in the Tetragon log parsing pipeline?"
+title: "[BUG]: "
 labels: ["bug", "triage"]
 body:
   - type: markdown

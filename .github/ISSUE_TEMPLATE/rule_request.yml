@@ -1,5 +1,6 @@
 name: "New Detection Proposal (EDR)"
 descriptions: "Do you have an idea for detecting a new anomaly or eBPF-based behavior?"
+tittle: "[rule]: "
 labels: ["enhancement", "rules"]
 body:
   - type: markdown
