@@ -1,0 +1,29 @@
+name: "Deployment Pipeline / CI/CD"
+description: "What caused the error in the Tetragon log parsing pipeline?"
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this! Your feedback will help keep this EDR engine running at peak performance.
+  - type: textarea
+    id: description
+    attributes:
+      label: "Issue Description"
+      description: "What exactly occured? Did the script fail at a specific line number?"
+      placeholder: "e.g., The script throws a ValueError when decoding a specific GNU path..."
+    validations:
+      required: true
+  - type: textarea
+    id: raw-log
+    attributes:
+      label: "Raw Tetragon log (Anonymized!)"
+      description: "Please paste a snippet of the JSON (or HEX) log where the script is having issue. Remove any sensitive data!"
+      render: json
+  - type: input
+    id: environment
+    attributes:
+      label: "Runtime Environment"
+      description: "Please provide the versions used in your environment."
+      placeholder: "e.g., Arch Linux, Python 3.14.5, Tetragon v1.7.0"
+    validations: true

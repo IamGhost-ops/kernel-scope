@@ -1,0 +1,28 @@
+name: "New Detection Proposal (EDR)"
+descriptions: "Do you have an idea for detecting a new anomaly or eBPF-based behavior?"
+labels: ["enhancement", "rules"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The project grows thanks to the community. Share your behavioral correlation idea with us!
+  - type: input
+    id: rule-name
+    attributes:
+      label: "Rule Name or Objective."
+      placeholder: "e.g., detecting writes to etc/cron* by non-root processes"
+    validations: 
+      required: true
+  - type: textarea
+    id: logic
+    attributes:
+      label: "Correlation Logic"
+      description: "Which event_types, syscalls, or  hashes (MD%/SHA-256) should trigger this alert?"
+      placeholder: "1. process_exec in /tmp\n2. Invocation of sys_connect by the same PID..."
+    validations:
+      required: true
+  - type: textarea
+    id: prometheus
+    attributes:
+      label: "Suggested Prometheus Metrics"
+      descriptions: "What labels should this rule expose to maintain low cardinality?"
