@@ -146,4 +146,5 @@ Once running, confirm metrics are being exposed by checking the configured Prome
 | Kernel | 7.0+ |
 | Kernel Interface | eBPF |
 | Monitoring Engine | Tetragon v1.7.0+ |
-| Analysis Script | Python 3.14.5 |
+| Analysis Script | Python 3.14.5+ |
+
